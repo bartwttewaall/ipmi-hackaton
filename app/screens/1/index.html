@@ -16,6 +16,8 @@
     <canvas id="visualizer"></canvas>
 
     <script src="js/ipmi.min.js"></script>
+    <script src="js/dat.gui.min.js"></script>
+    <script src="js/game.js"></script>
     <script>
       // Setup configuration for motion tracking
       var config = {
@@ -26,6 +28,27 @@
           method: IPMI.TrackingMethod.TSPS
         }
       };
+      
+      var physics = {
+        velocity: 0,
+        run: false
+      };
+      
+      var game = new Game(physics);
+      
+      var gui = new dat.GUI();
+      
+      var velocityCtrl = gui.add(physics, 'velocity', -100, 100);
+      var startCtrl = gui.add(physics, 'run');
+      
+      velocityCtrl.onChange(function(value) {
+        console.log('velocity has changed', value);
+      });
+      
+      startCtrl.onChange(function(value) {
+        if (value) game.startLoop();
+        else game.stopLoop();
+      });
 
       // Activate debugmode (leave out to use regular mode)
       IPMI.Tools.DEBUG = true;

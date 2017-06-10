@@ -9,6 +9,7 @@
 		this.dude = null;
 		this.falling = false;
 		this.dudeAcceleration = 0;
+		this.resetTimeoutId = -1;
 		
 		this.ropeSettings = {
 			length    : 100,
@@ -191,7 +192,7 @@
         this.stopLoop();
         this.render();
     };
-
+    
     p.render = function () {
         if (!this.loading) {
         	
@@ -218,8 +219,11 @@
 	p.calculatePhysics = function() {
 		if (!this.falling) {
 			// TODO: add brownian noise?
-			this.physics.angle += this.physics.velocity * this.physics.dampening * Math.random();
-			this.physics.angle = Math.round(this.physics.angle * 1000) / 1000;
+			this.physics.velocity = this.physics.velocity * 0.98;
+			this.physics.angle += this.physics.velocity;
+			
+			this.physics.angle *=  0.99; // recover the angle
+			
 			
 			this.dude.rotation.z = THREE.Math.degToRad(this.physics.angle);
 		}
@@ -229,7 +233,27 @@
 		if (this.falling) {
 			this.dudeAcceleration += -9.81 / 60 / 2;
 			this.dude.position.y += this.dudeAcceleration;
+			
+			if (this.resetTimeoutId < 0) {
+				// restart the game after a delay
+				this.resetTimeoutId = setTimeout(function() {
+					this.resetGame();
+					this.resetTimeoutId = -1;
+				}.bind(this), 2000);
+			}
 		}
+	};
+	
+	p.resetGame = function() {
+		console.log('resetGame');
+		
+		this.dude.position.set(0, 0, 0);
+		this.dude.rotation.set(0, 0, 0);
+		this.dudeAcceleration = 0;
+		
+		this.physics.velocity = 0;
+		this.physics.angle = 0;
+		
 	};
 	
 	ns.Game = Game;

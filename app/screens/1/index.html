@@ -38,7 +38,6 @@
       this.paused = false;
       
       var physics = {
-        dampening : 0.01,
         angle     : 0,
         velocity  : 0
       };
@@ -47,9 +46,8 @@
       var game = new Game(physics, target);
       
       var gui = new dat.GUI();
-      gui.add(physics, 'dampening');
       gui.add(physics, 'angle').listen();
-      gui.add(physics, 'velocity', -100, 100);
+      gui.add(physics, 'velocity', -1, 1).listen();
       
       gui.add(this, 'paused').onChange(function(value) {
         if (value) game.stopLoop();
@@ -59,27 +57,43 @@
       game.startLoop();
       
       // Activate debugmode (leave out to use regular mode)
-      IPMI.Tools.DEBUG = true;
+      IPMI.Tools.DEBUG = false;
 
       // Initialize the client framework
       var IPMIFramework = new IPMI.Framework(config);
 
       // Create tracking visualizer
       var visualizer = new IPMI.TrackingVisualizer(IPMIFramework.Tracking, document.querySelector('#visualizer'));
-
+      
       // Example signal bindings
       IPMIFramework.Tracking.SceneUpdatedSignal.add(function(scene) {
         // Handle logic that needs to use scene data
       });
-
+      
+      var trackingId = null;
+      var initialPosition = null;
+      var offset = {x:0, y:0};
+      
       IPMIFramework.Tracking.PersonEnteredSignal.add(function(person) {
         // Handle logic to be executed when a person enters the scene
+        if (trackingId === null) {
+          trackingId = person.id;
+          initialPosition = person.base;
+        }
       });
+      
       IPMIFramework.Tracking.PersonUpdatedSignal.add(function(person) {
         // Handle logic to be executed when a person moves within the scene
+        if (trackingId === person.id) {
+          offset.x = (person.base.x - initialPosition.x) / initialPosition.x;
+          offset.y = (person.base.y - initialPosition.y) / initialPosition.y;
+          physics.velocity = offset.x * 2;
+        }
       });
+      
       IPMIFramework.Tracking.PersonLeftSignal.add(function(person) {
         // Handle logic to be executed when a person leaves the scene
+        if (trackingId !== null) trackingId = null;
       });
     </script>
   </body>

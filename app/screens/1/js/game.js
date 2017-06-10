@@ -6,13 +6,27 @@
 		
 		this.parentElement = target;
 		
+		this.dude = null;
+		this.falling = false;
+		this.dudeAcceleration = 0;
+		
+		this.ropeSettings = {
+			length    : 100,
+			thickness : 0.25,
+			segments  : 12
+		};
+		
 		this.setupScene();
 		this.setupLighting();
+		this.setupMaterials();
 		this.setupModels();
 		this.setupCamera();
 		this.setupControls();
+		this.setupTools();
 		
+		this.setupEventHandlers();
 		this.resizeToContainer();
+		this.loadTextures();
 		
 		this.activeIndex = 0;
 		this.screens = [
@@ -25,7 +39,7 @@
 		];
 		
 		this.loading = false;
-		this.isRunning = false;
+		this.isRendering = false;
 		this.requestID = null;
 		
 		this.perlin = 0;
@@ -33,9 +47,17 @@
 	
 	var p = Game.prototype;
 	
+	p.setupEventHandlers = function() {
+		window.addEventListener('resize', windowResizeHandler, false);
+		
+		function windowResizeHandler() {
+			resizeToContainer();
+		}
+	};
+	
 	p.setupScene = function() {
 		this.scene = new THREE.Scene();
-		this.scene.fog = new THREE.FogExp2(0x000000, 0.0025);
+		this.scene.fog = new THREE.FogExp2(0x00AACC, 0.0025);
 		this.canvas = this.parentElement.appendChild(document.createElement('canvas'));
 		
 		this.rendererAttributes = {
@@ -48,7 +70,7 @@
 		
 		this.renderer = new THREE.WebGLRenderer(this.rendererAttributes);
 		this.renderer.autoClear = false;
-		this.renderer.setClearColor(0x000000, 0);
+		this.renderer.setClearColor(0x000000, 0.5);
 		this.renderer.setPixelRatio(window.devicePixelRatio);
 	};
 	
@@ -77,25 +99,48 @@
 		this.scene.add(lighting);
 	};
 	
+	p.setupMaterials = function() {
+		this.dudeBodyMaterial = new THREE.MeshBasicMaterial({color: 0x72BFCC});
+		this.ropeMaterial = new THREE.MeshLambertMaterial();
+	};
+	
 	p.setupModels = function() {
-		var geometry = new THREE.BoxGeometry(3, 10, 1);
-		var material = new THREE.MeshBasicMaterial({color: 0x72BFCC});
-		var dude = new THREE.Mesh(geometry, material);
-		this.scene.add(dude);
+		this.dude = new THREE.Object3D();
+		this.scene.add(this.dude);
 		
-		// plane to fake mirror effect
-		var geometry = new THREE.PlaneGeometry(50, 50);
-		var material = new THREE.MeshBasicMaterial({color: 0x72BFCC, transparent: true, opacity: 0.8, side: THREE.DoubleSide});
-		var plane = new THREE.Mesh(geometry, material);
-		plane.rotation.x = THREE.Math.degToRad(-90);
-		this.scene.add(plane);
+		var body = new THREE.Mesh(
+			new THREE.BoxGeometry(3, 10, 1),
+			this.dudeBodyMaterial
+		);
+		body.position.set(0, 10/2, 0);
+		this.dude.add(body);
+		
+		var rope = new THREE.Mesh(
+			new THREE.CylinderGeometry(this.ropeSettings.thickness, this.ropeSettings.thickness, this.ropeSettings.length, this.ropeSettings.segments),
+			this.ropeMaterial
+		);
+		
+		rope.rotation.x = THREE.Math.degToRad(90);
+		rope.position.y = 0;
+		this.scene.add(rope);
+	};
+	
+	p.loadTextures = function() {
+		var ropeTexture = new THREE.TextureLoader().load('/assets/rope.jpg', function(texture) {
+			this.ropeMaterial.map = texture;
+			this.ropeMaterial.needsUpdate = true;
+		}.bind(this));
+		
+		ropeTexture.wrapS = THREE.RepeatWrapping;
+		ropeTexture.wrapT = THREE.RepeatWrapping;
+		ropeTexture.repeat.set( 1/8, this.ropeSettings.length/8 );
 	};
 	
 	p.setupCamera = function() {
 		var fov = 75;
 		var aspect = 1;
 		var near = 0.1;
-		var far = 100;
+		var far = 200;
 
 		this.camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
 		this.camera.position.z = 20;
@@ -103,8 +148,21 @@
 	};
 	
 	p.setupControls = function() {
-		// this.controls = new THREE.OrbitControls(this.camera, this.canvas);
-		// this.controls.target = new THREE.Vector3(0, 4, 0);
+		this.controls = new THREE.OrbitControls(this.camera, this.canvas);
+		this.controls.target = new THREE.Vector3(0, 4, 0);
+	};
+	
+	p.setupTools = function() {
+		var stats = new Stats();
+		stats.domElement.style.position = 'absolute';
+		stats.domElement.style.top = '0px';
+		stats.domElement.style.zIndex = 100;
+		this.parentElement.appendChild(stats.domElement);
+		
+		var size = 100;
+		var divisions = 10;
+		var gridHelper = new THREE.GridHelper(size, divisions);
+		this.scene.add(gridHelper);
 	};
 	
 	p.resizeToContainer = function() {
@@ -116,7 +174,7 @@
 	
 	p.startLoop = function () {
 		console.log('start loop');
-        this.isRunning = true;
+        this.isRendering = true;
         this.render();
     };
 
@@ -124,7 +182,7 @@
     	console.log('stop loop');
     	
         // this will stop the render loop on the next frame
-        this.isRunning = false;
+        this.isRendering = false;
         if (this.requestID !== null) cancelAnimationFrame(this.requestID);
         this.requestID = null;
     };
@@ -137,18 +195,16 @@
     p.render = function () {
         if (!this.loading) {
         	
-            // keep rendering frames while this.isRunning is true
-            if (this.isRunning) {
+            // keep rendering frames while this.isRendering is true
+            if (this.isRendering) {
                 if (this.requestID !== null) cancelAnimationFrame(this.requestID);
                 this.requestID = requestAnimationFrame(this.render.bind(this));
             }
             
             this.calculatePhysics();
-            // this.controls.update();
-            this.renderer.render(this.scene, this.camera);
             
-            // if (!!this.stats) this.stats.update();
-			// this.renderer.render(this.scene, this.camera);
+            this.controls.update();
+            this.renderer.render(this.scene, this.camera);
         }
     };
 	
@@ -160,9 +216,20 @@
 	};
 	
 	p.calculatePhysics = function() {
-		// TODO: add brownian noise?
-		this.physics.angle += this.physics.velocity * this.physics.dampening * Math.random();
-		this.physics.angle = Math.round(this.physics.angle * 1000) / 1000;
+		if (!this.falling) {
+			// TODO: add brownian noise?
+			this.physics.angle += this.physics.velocity * this.physics.dampening * Math.random();
+			this.physics.angle = Math.round(this.physics.angle * 1000) / 1000;
+			
+			this.dude.rotation.z = THREE.Math.degToRad(this.physics.angle);
+		}
+		
+		this.falling = (this.physics.angle > 45 || this.physics.angle < -45);
+		
+		if (this.falling) {
+			this.dudeAcceleration += -9.81 / 60 / 2;
+			this.dude.position.y += this.dudeAcceleration;
+		}
 	};
 	
 	ns.Game = Game;

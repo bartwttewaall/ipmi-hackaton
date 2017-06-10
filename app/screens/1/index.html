@@ -14,13 +14,15 @@
   </head>
   <body>
     
-    <div id="gameContainer" style="position:fixed;width:100%;height:100%;"></div>
+    <div id="gameContainer" style="position:fixed;width:100%;height:100%;background-color:cornsilk;"></div>
     
     <canvas id="visualizer"></canvas>
 
     <script src="js/ipmi.min.js"></script>
     <script src="js/dat.gui.min.js"></script>
     <script src="js/three.min.js"></script>
+    <script src="js/stats.min.js"></script>
+    <script src="js/OrbitControls.js"></script>
     <script src="js/game.js"></script>
     <script>
       // Setup configuration for motion tracking
@@ -33,11 +35,12 @@
         }
       };
       
+      this.paused = false;
+      
       var physics = {
-        dampening : 0.001,
+        dampening : 0.01,
         angle     : 0,
-        velocity  : 0,
-        run       : false
+        velocity  : 0
       };
       
       var target = document.querySelector('#gameContainer');
@@ -46,19 +49,15 @@
       var gui = new dat.GUI();
       gui.add(physics, 'dampening');
       gui.add(physics, 'angle').listen();
+      gui.add(physics, 'velocity', -100, 100);
       
-      var velocityCtrl = gui.add(physics, 'velocity', -100, 100);
-      var startCtrl = gui.add(physics, 'run');
-      
-      velocityCtrl.onChange(function(value) {
-        console.log('velocity has changed', value);
+      gui.add(this, 'paused').onChange(function(value) {
+        if (value) game.stopLoop();
+        else game.startLoop();
       });
       
-      startCtrl.onChange(function(value) {
-        if (value) game.startLoop();
-        else game.stopLoop();
-      });
-
+      game.startLoop();
+      
       // Activate debugmode (leave out to use regular mode)
       IPMI.Tools.DEBUG = true;
 

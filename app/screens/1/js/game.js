@@ -2,14 +2,31 @@
 	
 	var Game = function(physics, target) {
 		
+		this.edging = new signals.Signal();
+		this.recovered = new signals.Signal();
+		this.falling = new signals.Signal();
+		
 		this.physics = physics; // should check if not null
 		
 		this.parentElement = target;
 		
-		this.dude = null;
-		this.falling = false;
-		this.dudeAcceleration = 0;
+		this.loading = false;
+		this.isRendering = false;
+		this.requestID = null;
+		
+		this.distance = 0;
+		this.score = 0;
+		this.scoreLabel = document.querySelector('#gameScore');
+		this.scoreLabel.innerText = this.score + ' m';
+		
 		this.resetTimeoutId = -1;
+		this.dude = null;
+		
+		this.isFalling = false;
+		this.fallingAcceleration = -9.81 / 60 / 4;
+		this.fallingVelocity = 0;
+		
+		this.forwardVelocity = 0.002;
 		
 		this.ropeSettings = {
 			length    : 100,
@@ -23,11 +40,12 @@
 		this.setupModels();
 		this.setupCamera();
 		this.setupControls();
-		this.setupTools();
+		// this.setupTools();
 		
 		this.setupEventHandlers();
 		this.resizeToContainer();
 		this.loadTextures();
+		this.loadSounds();
 		
 		this.activeIndex = 0;
 		this.screens = [
@@ -38,22 +56,12 @@
 			{name: 'gameover'},
 			{name: 'restart'},
 		];
-		
-		this.loading = false;
-		this.isRendering = false;
-		this.requestID = null;
-		
-		this.perlin = 0;
 	};
 	
 	var p = Game.prototype;
 	
 	p.setupEventHandlers = function() {
-		window.addEventListener('resize', windowResizeHandler, false);
-		
-		function windowResizeHandler() {
-			resizeToContainer();
-		}
+		window.addEventListener('resize', this.resizeToContainer.bind(this), false);
 	};
 	
 	p.setupScene = function() {
@@ -109,12 +117,61 @@
 		this.dude = new THREE.Object3D();
 		this.scene.add(this.dude);
 		
-		var body = new THREE.Mesh(
-			new THREE.BoxGeometry(3, 10, 1),
-			this.dudeBodyMaterial
+		//*//
+		var dudeLoader = new THREE.ObjectLoader();
+		dudeLoader.load('assets/model2.json',
+			function ( model ) {
+				console.log(model);
+				this.dude.add(model);
+				
+			}.bind(this),
+
+			function ( xhr ) {
+				console.log( (xhr.loaded / xhr.total * 100) + '% loaded' );
+			}.bind(this),
+
+			// Function called when download errors
+			function ( xhr ) {
+				console.error( 'An error happened', xhr );
+			}.bind(this)
 		);
-		body.position.set(0, 10/2, 0);
-		this.dude.add(body);
+		//*/
+		
+		/*//
+		var dudeLoader = new THREE.OBJLoader2();
+		dudeLoader.load('assets/testpop1.obj',
+			function ( model ) {
+				this.dude.add(model);
+			}.bind(this),
+
+			function ( xhr ) {
+				console.log( (xhr.loaded / xhr.total * 100) + '% loaded' );
+			}.bind(this),
+
+			// Function called when download errors
+			function ( xhr ) {
+				console.error( 'An error happened', xhr );
+			}.bind(this)
+		);
+		//*/
+		
+		/*//
+		var dudeLoader = new THREE.FBXLoader();
+		dudeLoader.load('assets/testpop2.FBX',
+			function(result) {
+				console.log('loaded model:', result);
+			}.bind(this),
+
+			function ( xhr ) {
+				console.log( (xhr.loaded / xhr.total * 100) + '% loaded' );
+			}.bind(this),
+
+			// Function called when download errors
+			function ( xhr ) {
+				console.error( 'An error happened', xhr );
+			}.bind(this)
+		);
+		//*/
 		
 		var rope = new THREE.Mesh(
 			new THREE.CylinderGeometry(this.ropeSettings.thickness, this.ropeSettings.thickness, this.ropeSettings.length, this.ropeSettings.segments),
@@ -127,7 +184,7 @@
 	};
 	
 	p.loadTextures = function() {
-		var ropeTexture = new THREE.TextureLoader().load('/assets/rope.jpg', function(texture) {
+		var ropeTexture = new THREE.TextureLoader().load('assets/rope.jpg', function(texture) {
 			this.ropeMaterial.map = texture;
 			this.ropeMaterial.needsUpdate = true;
 		}.bind(this));
@@ -144,13 +201,59 @@
 		var far = 200;
 
 		this.camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
-		this.camera.position.z = 20;
-		this.camera.position.y = 10;
+		this.camera.position.set(1, 5, 15);
 	};
 	
 	p.setupControls = function() {
 		this.controls = new THREE.OrbitControls(this.camera, this.canvas);
 		this.controls.target = new THREE.Vector3(0, 4, 0);
+	};
+	
+	p.loadSounds = function() {
+		// loadAudio('assets/169233__mlteenie__crowd-yay.wav').then(function (buffer) {
+		// 	console.log(buffer) // => <AudioBuffer>
+		// });
+		
+		this.sounds = [];
+		
+		this.wind = new Audio('assets/game/07 Blustery wind through fence.mp3');
+		this.sounds.push(this.wind);
+		this.playAndLoopAudio(this.wind);
+
+		this.crowdSound = new Audio('assets/169233__mlteenie__crowd-yay.wav');
+		this.sounds.push(this.crowdSound);
+		
+		this.fallSound = new Audio('assets/239900__thesubber13__scream-1.ogg');
+		this.sounds.push(this.fallSound);
+		
+		console.log(this.wind);
+		
+		this.edging.add(function() {
+			//this.crowdSound.play();
+		}.bind(this));
+		
+		this.recovered.add(function() {
+			this.crowdSound.play();
+		}.bind(this));
+		
+		this.falling.add(function() {
+			this.fallSound.play();
+		}.bind(this));
+	};
+	
+	p.playAndLoopAudio = function(audio) {
+		audio.addEventListener('ended', function() {
+			this.currentTime = 0;
+			this.play();
+		}, false);
+		audio.play();
+	};
+	
+	p.stopAllSounds = function() {
+		this.sounds.forEach(function(sound) {
+			sound.pause();
+			sound.currentTime = 0;
+		});
 	};
 	
 	p.setupTools = function() {
@@ -203,6 +306,7 @@
             }
             
             this.calculatePhysics();
+            this.calculateScore();
             
             this.controls.update();
             this.renderer.render(this.scene, this.camera);
@@ -217,22 +321,31 @@
 	};
 	
 	p.calculatePhysics = function() {
-		if (!this.falling) {
+		
+		this.distance += this.forwardVelocity * 10;
+		
+		if (!!this.ropeMaterial.map) {
+			this.ropeMaterial.map.offset.y = (this.ropeMaterial.map.offset.y + this.forwardVelocity) % 1;
+		}
+		
+		if (!this.isFalling) {
 			// TODO: add brownian noise?
 			this.physics.velocity = this.physics.velocity * 0.98;
 			this.physics.angle += this.physics.velocity;
 			
-			this.physics.angle *=  0.99; // recover the angle
-			
+			this.physics.angle *=  0.98; // recover the angle
 			
 			this.dude.rotation.z = THREE.Math.degToRad(this.physics.angle);
 		}
 		
-		this.falling = (this.physics.angle > 45 || this.physics.angle < -45);
+		if (!this.isFalling && (this.physics.angle > 45 || this.physics.angle < -45)) {
+			this.isFalling = true;
+			this.falling.dispatch();
+		}
 		
-		if (this.falling) {
-			this.dudeAcceleration += -9.81 / 60 / 2;
-			this.dude.position.y += this.dudeAcceleration;
+		if (this.isFalling) {
+			this.fallingVelocity += this.fallingAcceleration;
+			this.dude.position.y += this.fallingVelocity;
 			
 			if (this.resetTimeoutId < 0) {
 				// restart the game after a delay
@@ -244,15 +357,27 @@
 		}
 	};
 	
+	p.calculateScore = function() {
+		if (!this.isFalling) {
+			this.score = Math.round(this.distance);
+		}
+		
+		this.scoreLabel.innerText = this.score + ' m';
+	};
+	
 	p.resetGame = function() {
 		console.log('resetGame');
 		
-		this.dude.position.set(0, 0, 0);
-		this.dude.rotation.set(0, 0, 0);
-		this.dudeAcceleration = 0;
+		this.isFalling = false;
+		this.fallingVelocity = 0;
 		
 		this.physics.velocity = 0;
 		this.physics.angle = 0;
+		
+		this.distance = 0;
+		
+		this.dude.position.set(0, 0, 0);
+		this.dude.rotation.set(0, 0, 0);
 		
 	};
 	

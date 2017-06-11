@@ -2,22 +2,33 @@
 	
 	var Game = function(physics, target) {
 		
+		this.started = new signals.Signal();
 		this.edging = new signals.Signal();
 		this.recovered = new signals.Signal();
 		this.falling = new signals.Signal();
+		this.ended = new signals.Signal();
 		
 		this.physics = physics; // should check if not null
+		
+		this.wind = {
+			amp: Math.PI/4,
+			freq: 1/60,
+			frame: 0,
+			phase: 0,
+			value: 0,
+		};
 		
 		this.parentElement = target;
 		
 		this.loading = false;
 		this.isRendering = false;
 		this.requestID = null;
+		this.endDelay = 5000;
 		
 		this.distance = 0;
 		this.score = 0;
-		this.scoreLabel = document.querySelector('#gameScore');
-		this.scoreLabel.innerText = this.score + ' m';
+		
+		this.scoreTable = document.querySelector('table');
 		
 		this.resetTimeoutId = -1;
 		this.dude = null;
@@ -34,6 +45,8 @@
 			segments  : 12
 		};
 		
+		this.loadSounds();
+		
 		this.setupScene();
 		this.setupLighting();
 		this.setupMaterials();
@@ -45,17 +58,6 @@
 		this.setupEventHandlers();
 		this.resizeToContainer();
 		this.loadTextures();
-		this.loadSounds();
-		
-		this.activeIndex = 0;
-		this.screens = [
-			{name: 'idle'},
-			{name: 'start'},
-			{name: 'countdown'},
-			{name: 'game'},
-			{name: 'gameover'},
-			{name: 'restart'},
-		];
 	};
 	
 	var p = Game.prototype;
@@ -67,7 +69,15 @@
 	p.setupScene = function() {
 		this.scene = new THREE.Scene();
 		this.scene.fog = new THREE.FogExp2(0x00AACC, 0.0025);
-		this.canvas = this.parentElement.appendChild(document.createElement('canvas'));
+		
+		this.canvas = document.createElement('canvas');
+		this.canvas.id = "gameCanvas";
+		
+		if (!!this.parentElement.firstChild) {
+			this.parentElement.insertBefore(this.canvas, this.parentElement.firstChild);
+		} else {
+			this.parentElement.appendChild(this.canvas);
+		}
 		
 		this.rendererAttributes = {
 			canvas                : this.canvas,
@@ -95,12 +105,12 @@
 		back.name = "Back light";
 		lighting.add(back);
 
-		var key = new THREE.DirectionalLight("white", 0.375);
+		var key = new THREE.DirectionalLight("white", 3);
 		key.position.set(-2, -1, 0);
 		key.name = "Key light";
 		lighting.add(key);
 
-		var fill = new THREE.DirectionalLight("white", 0.75);
+		var fill = new THREE.DirectionalLight("white", 1.20);
 		fill.position.set(3, 3, 2);
 		fill.name = "Fill light";
 		lighting.add(fill);
@@ -117,11 +127,11 @@
 		this.dude = new THREE.Object3D();
 		this.scene.add(this.dude);
 		
-		//*//
+		/*//
 		var dudeLoader = new THREE.ObjectLoader();
-		dudeLoader.load('assets/model2.json',
+		dudeLoader.load(
+			'assets/model2.json',
 			function ( model ) {
-				console.log(model);
 				this.dude.add(model);
 				
 			}.bind(this),
@@ -155,11 +165,29 @@
 		);
 		//*/
 		
-		/*//
+		//*//
 		var dudeLoader = new THREE.FBXLoader();
-		dudeLoader.load('assets/testpop2.FBX',
-			function(result) {
-				console.log('loaded model:', result);
+		dudeLoader.load(
+			'assets/testpoppen101.FBX',
+			//'assets/model5.FBX',
+			function( model ) {
+				this.mixer = new THREE.AnimationMixer(model);
+                this.mixer.clipAction(model.animations[0]).play();
+                this.mixer.timeScale = 0.001;
+                
+                model.scale.set(3,3,3);
+                
+                model.children.forEach(function(mesh) {
+                	if (typeof mesh.material !== 'undefined' && mesh.material.name === 'printplaat') {
+                		var loader = new THREE.TextureLoader().load('assets/printplaat.png', function(texture) {
+							mesh.material.color.set('#FFFFFF');
+							mesh.material.map = texture;
+							mesh.material.needsUpdate = true;
+						}.bind(this));
+                	}
+                });
+                
+                this.dude.add(model);
 			}.bind(this),
 
 			function ( xhr ) {
@@ -201,7 +229,7 @@
 		var far = 200;
 
 		this.camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
-		this.camera.position.set(1, 5, 15);
+		this.camera.position.set(0, 1, 15);
 	};
 	
 	p.setupControls = function() {
@@ -210,34 +238,51 @@
 	};
 	
 	p.loadSounds = function() {
-		// loadAudio('assets/169233__mlteenie__crowd-yay.wav').then(function (buffer) {
-		// 	console.log(buffer) // => <AudioBuffer>
-		// });
-		
 		this.sounds = [];
 		
-		this.wind = new Audio('assets/game/07 Blustery wind through fence.mp3');
-		this.sounds.push(this.wind);
-		this.playAndLoopAudio(this.wind);
-
-		this.crowdSound = new Audio('assets/169233__mlteenie__crowd-yay.wav');
-		this.sounds.push(this.crowdSound);
+		this.startSound = new Audio('assets/intro/door lock.wav');
+		this.sounds.push(this.startSound);
+		
+		this.growSound = new Audio('assets/intro/counter up.wav');
+		this.sounds.push(this.growSound);
+		
+		this.shrinkSound = new Audio('assets/intro/counter down.wav');
+		this.sounds.push(this.shrinkSound);
+		
+		this.windSound = new Audio('assets/game/07 Blustery wind through fence.mp3');
+		this.sounds.push(this.windSound);
+		
+		this.dudeSound = new Audio('assets/intro/de man.wav');
+		this.sounds.push(this.dudeSound);
 		
 		this.fallSound = new Audio('assets/239900__thesubber13__scream-1.ogg');
 		this.sounds.push(this.fallSound);
 		
-		console.log(this.wind);
+		this.endSound = new Audio('assets/game/11 Light Entertainment Audience, Lau.wav');
+		this.sounds.push(this.endSound);
+		
+		this.started.add(function() {
+			this.startSound.play();
+			this.playAndLoopAudio(this.windSound);
+        	this.playAndLoopAudio(this.dudeSound);
+		}.bind(this));
 		
 		this.edging.add(function() {
-			//this.crowdSound.play();
+			//this.crowdOohSound.play();
 		}.bind(this));
 		
 		this.recovered.add(function() {
-			this.crowdSound.play();
+			//this.crowdYaySound.play();
 		}.bind(this));
 		
 		this.falling.add(function() {
+			this.dudeSound.pause();
 			this.fallSound.play();
+		}.bind(this));
+		
+		this.ended.add(function() {
+			this.stopAllSounds();
+			this.endSound.play();
 		}.bind(this));
 	};
 	
@@ -277,14 +322,13 @@
 	};
 	
 	p.startLoop = function () {
-		console.log('start loop');
         this.isRendering = true;
         this.render();
+        
+        this.started.dispatch();
     };
-
+    
     p.stopLoop = function () {
-    	console.log('stop loop');
-    	
         // this will stop the render loop on the next frame
         this.isRendering = false;
         if (this.requestID !== null) cancelAnimationFrame(this.requestID);
@@ -296,15 +340,24 @@
         this.render();
     };
     
+    p.time = Date.now();
+    
     p.render = function () {
         if (!this.loading) {
+        	
+        	var dt = 0;
         	
             // keep rendering frames while this.isRendering is true
             if (this.isRendering) {
                 if (this.requestID !== null) cancelAnimationFrame(this.requestID);
                 this.requestID = requestAnimationFrame(this.render.bind(this));
+                
+                var current = Date.now();
+                dt = current - p.time;
+                p.time = current;
             }
             
+            if (!!this.mixer) this.mixer.update(dt);
             this.calculatePhysics();
             this.calculateScore();
             
@@ -313,16 +366,12 @@
         }
     };
 	
-	p.gotoScreen = function(name) {
-		this.activeIndex = this.screens.findIndex(function(screen) {
-			return (screen.name === name);
-		});
-		console.log('goto screen', name, 'at index:', this.activeIndex);
-	};
-	
 	p.calculatePhysics = function() {
 		
 		this.distance += this.forwardVelocity * 10;
+		
+		var difficulty = (400 + this.distance * 10) / 1000;
+		this.wind.value = this.wind.amp * 2 * difficulty * Math.sin(this.wind.freq * difficulty * ++this.wind.frame + this.wind.phase);
 		
 		if (!!this.ropeMaterial.map) {
 			this.ropeMaterial.map.offset.y = (this.ropeMaterial.map.offset.y + this.forwardVelocity) % 1;
@@ -330,9 +379,9 @@
 		
 		if (!this.isFalling) {
 			// TODO: add brownian noise?
-			this.physics.velocity = this.physics.velocity * 0.98;
-			this.physics.angle += this.physics.velocity;
-			
+			this.physics.velocity *= 0.98;
+			this.physics.angle += this.wind.value;
+			this.physics.angle -= this.physics.velocity;
 			this.physics.angle *=  0.98; // recover the angle
 			
 			this.dude.rotation.z = THREE.Math.degToRad(this.physics.angle);
@@ -352,22 +401,33 @@
 				this.resetTimeoutId = setTimeout(function() {
 					this.resetGame();
 					this.resetTimeoutId = -1;
-				}.bind(this), 2000);
+					this.ended.dispatch();
+				}.bind(this), this.endDelay);
 			}
 		}
 	};
 	
 	p.calculateScore = function() {
+		var scoreElement = document.querySelector('#game #score');
+		
 		if (!this.isFalling) {
-			this.score = Math.round(this.distance);
+			this.score = Math.max(0, Math.min(Math.round(this.distance), 999));
+		} else {
+			scoreElement.classList.add('final');
 		}
 		
-		this.scoreLabel.innerText = this.score + ' m';
+		var pad = "000";
+		var str = this.score.toString();
+		str = pad.substring(0, pad.length - str.length) + str;
+		
+		var cells = document.querySelectorAll('#game #score td');
+		cells[0].innerText = str.charAt(0);
+		cells[1].innerText = str.charAt(1);
+		cells[2].innerText = str.charAt(2);
+		cells[3].innerText = 'm';
 	};
 	
 	p.resetGame = function() {
-		console.log('resetGame');
-		
 		this.isFalling = false;
 		this.fallingVelocity = 0;
 		
@@ -379,6 +439,8 @@
 		this.dude.position.set(0, 0, 0);
 		this.dude.rotation.set(0, 0, 0);
 		
+		var scoreElement = document.querySelector('#game #score');
+		if (!!scoreElement.classList) scoreElement.classList.remove('final');
 	};
 	
 	ns.Game = Game;
